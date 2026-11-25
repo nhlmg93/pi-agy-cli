@@ -124,3 +124,20 @@ export function extractAcpUsage(raw: unknown): AcpUsage | undefined {
     totalTokens: num("totalTokens"),
   };
 }
+
+/**
+ * Context occupancy from an ACP `usage_update` session update. `used` is the
+ * size of the context at agy's latest model call; `size` is the window.
+ * Unlike `session/prompt` usage, it is not summed across the calls of a prompt.
+ */
+export interface AcpContextUsage {
+  readonly used: number;
+  readonly size: number;
+}
+
+export function extractAcpContextUsage(update: Record<string, unknown>): AcpContextUsage | undefined {
+  if (update.sessionUpdate !== "usage_update") return undefined;
+  const { used, size } = update;
+  if (typeof used !== "number" || typeof size !== "number") return undefined;
+  return { used, size };
+}

@@ -27,7 +27,7 @@ import {
   type PiInputContext,
 } from "./pi-context.ts";
 import type { ProviderSettings } from "./provider-env.ts";
-import { mapThinkingEffort } from "./thinking-config.ts";
+import { resolveAgyModelId } from "./thinking-config.ts";
 import { recordSpan } from "./tracing.ts";
 
 /** Brief window to coalesce simultaneous parallel MCP `tools/call` invocations. */
@@ -57,7 +57,7 @@ export function runEpisode(
     const startMs = Date.now();
     const sessionKey = request.options?.sessionId ?? "default";
     const cwd = process.cwd();
-    const effort = mapThinkingEffort(request.options?.reasoning);
+    const agyModelId = resolveAgyModelId(request.model, request.options?.reasoning);
     const resolved = resolvePiRequest(request.context);
     const tools = resolved.tools;
     const incomingToolResults = extractTrailingToolResults(request.context);
@@ -87,8 +87,8 @@ export function runEpisode(
         {
           binary: request.settings.binary,
           model: request.model.id,
+          agyModelId,
           cwd,
-          effort,
         },
         tools,
       );
@@ -100,13 +100,48 @@ export function runEpisode(
     } else {
       active = parked;
       active.handle.mcp.setTools(tools);
-      if (effort && effort !== parked.lastEffort) {
-        yield* Effect.promise(() => active.handle.setEffort(effort));
+      if (agyModelId !== parked.currentAgyModelId) {
+        yield* Effect.tryPromise({
+          try: () => active.handle.setModel(agyModelId),
+          catch: (err) =>
+            err instanceof AgyProcessError
+              ? err
+              : new AgyProcessError({ message: err instanceof Error ? err.message : String(err) }),
+        }).pipe(Effect.tapError(() => request.pool.retireInBackground(active)));
+        active = { ...active, currentAgyModelId: agyModelId };
       }
       pendingBlocks = buildAcpPromptBlocks(request.context, "turn");
     }
 
     const bridge = createEventBridge(request.stream, request.model);
+
+    /**
+     * Reports the context agy holds now. `session/prompt` usage sums every model
+     * call of a prompt (which spans all of pi's tool round trips), so it is used
+     * only when agy sent no `usage_update`.
+     */
+    const emitUsage = (outcome?: AcpPromptOutcome): void => {
+      const context = active.handle.getContextUsage();
+      if (context) {
+        bridge.handleEvent({
+          type: "usage",
+          input: context.used,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: context.used,
+        });
+      } else if (outcome?.usage) {
+        bridge.handleEvent({
+          type: "usage",
+          input: outcome.usage.inputTokens,
+          output: outcome.usage.outputTokens,
+          cacheRead: outcome.usage.cachedReadTokens,
+          cacheWrite: outcome.usage.cachedWriteTokens,
+          totalTokens: outcome.usage.totalTokens,
+        });
+      }
+    };
     let promptPromise: Promise<AcpPromptOutcome> | undefined = existingPromptPromise;
 
     const episodeOutcome = yield* Effect.callback<
@@ -154,6 +189,7 @@ export function runEpisode(
             arguments: call.arguments,
           });
         }
+        emitUsage();
         bridge.handleEvent({ type: "done", stopReason: "toolUse" });
         finish(Effect.succeed({ kind: "handoff", toolIds: heldCalls.map((c) => c.id) }));
       };
@@ -216,16 +252,7 @@ export function runEpisode(
             flushToolCalls();
             return;
           }
-          if (outcome.usage) {
-            bridge.handleEvent({
-              type: "usage",
-              input: outcome.usage.inputTokens,
-              output: outcome.usage.outputTokens,
-              cacheRead: outcome.usage.cachedReadTokens,
-              cacheWrite: outcome.usage.cachedWriteTokens,
-              totalTokens: outcome.usage.totalTokens,
-            });
-          }
+          emitUsage(outcome);
           bridge.handleEvent({ type: "done", stopReason: outcome.stopReason });
           finish(Effect.succeed({ kind: "completed" }));
         })
@@ -248,7 +275,6 @@ export function runEpisode(
         acknowledgedPrefixLength: resolved.messages.length + 1,
         pendingToolCallIds: episodeOutcome.toolIds,
         activePrompt: promptPromise,
-        lastEffort: effort ?? active.lastEffort,
       });
     } else {
       yield* request.pool.park(sessionKey, {
@@ -256,14 +282,18 @@ export function runEpisode(
         acknowledgedPrefixLength: resolved.messages.length,
         pendingToolCallIds: [],
         activePrompt: undefined,
-        lastEffort: effort ?? active.lastEffort,
       });
     }
 
     yield* recordSpan({
       name: "episode",
       durationMs: Date.now() - startMs,
-      attributes: { mode, model: request.model.id, outcome: episodeOutcome.kind },
+      attributes: {
+        mode,
+        model: request.model.id,
+        agyModel: active.currentAgyModelId,
+        outcome: episodeOutcome.kind,
+      },
     });
   });
 }

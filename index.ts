@@ -66,6 +66,7 @@ export default function (pi: ExtensionAPI): void {
     models: async (signal) => (await probe()).probeAccountModels(signal),
   });
 
+  // Fallback until pi's startup model refresh replaces it with the account's families.
   const models = defaultFallbackModels().map(piModel);
 
   pi.registerCommand("pi-agy-cli-status", {
@@ -81,6 +82,7 @@ export default function (pi: ExtensionAPI): void {
     apiKey: "unused",
     api: PROVIDER_ID,
     models,
+    refreshModels: async (context) => (await refreshModels(context.signal)).map(piModel),
     streamSimple: (model, context, options) => {
       const stream = createAssistantMessageEventStream();
       void loadRuntime()
@@ -88,10 +90,5 @@ export default function (pi: ExtensionAPI): void {
         .catch((err: unknown) => failStream(stream, model, err));
       return stream;
     },
-  });
-
-  // Trigger a background model refresh without blocking pi startup.
-  void refreshModels().catch(() => {
-    // Non-fatal: fallback models remain available.
   });
 }

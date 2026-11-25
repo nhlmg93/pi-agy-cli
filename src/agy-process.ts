@@ -11,16 +11,17 @@ import {
   encodeJsonRpcNotification,
   encodeJsonRpcRequest,
   encodeJsonRpcResponse,
+  extractAcpContextUsage,
   extractAcpUsage,
   parseAcpLine,
   selectPermissionOptionId,
+  type AcpContextUsage,
   type AcpPermissionRequestParams,
   type AcpPromptBlock,
   type AcpUsage,
 } from "./cli-protocol.ts";
 import { AgyProcessError } from "./errors.ts";
 import { startLoopbackMcpServer, type LoopbackMcpServer } from "./mcp-inband.ts";
-import type { AgyEffortLevel } from "./thinking-config.ts";
 
 export interface AcpPromptOutcome {
   readonly stopReason: "stop" | "length" | "toolUse";
@@ -36,7 +37,10 @@ export interface AgyProcessHandle {
   readonly child: ChildProcess;
   readonly mcp: LoopbackMcpServer;
   readonly startPrompt: (blocks: readonly AcpPromptBlock[]) => Promise<AcpPromptOutcome>;
-  readonly setEffort: (effort: AgyEffortLevel) => Promise<void>;
+  /** Switches the session to another agy model id (e.g. another effort variant). */
+  readonly setModel: (agyModelId: string) => Promise<void>;
+  /** Latest ACP `usage_update`, if agy has sent one. */
+  readonly getContextUsage: () => AcpContextUsage | undefined;
   readonly cancelPrompt: () => void;
   readonly setUpdateListener: (cb: ((update: AcpSessionUpdate) => void) | undefined) => void;
   readonly setExitListener: (cb: ((err: AgyProcessError) => void) | undefined) => void;
@@ -83,6 +87,7 @@ export function spawnAgyProcess(
         const pendingRpc = new Map<number | string, PendingRpc>();
         let updateListener: ((update: AcpSessionUpdate) => void) | undefined;
         let exitListener: ((err: AgyProcessError) => void) | undefined;
+        let contextUsage: AcpContextUsage | undefined;
         let closed = false;
 
         const writeRaw = (payload: string): void => {
@@ -144,6 +149,7 @@ export function spawnAgyProcess(
               const params = msg.params as Record<string, unknown> | undefined;
               const update = params?.update;
               if (update && typeof update === "object" && !Array.isArray(update)) {
+                contextUsage = extractAcpContextUsage(update as AcpSessionUpdate) ?? contextUsage;
                 updateListener?.(update as AcpSessionUpdate);
               }
             }
@@ -192,7 +198,7 @@ export function spawnAgyProcess(
           }
         });
 
-        // Perform ACP handshake: initialize -> session/new -> set_model -> optional effort
+        // Perform ACP handshake: initialize -> session/new -> set_model (effort variant)
         void (async () => {
           try {
             await sendRequest("initialize", {
@@ -215,18 +221,8 @@ export function spawnAgyProcess(
 
             await sendRequest("session/set_model", {
               sessionId,
-              modelId: spec.model,
+              modelId: spec.agyModelId,
             });
-
-            if (spec.effort) {
-              await sendRequest("session/set_config_option", {
-                sessionId,
-                configId: "thought_level",
-                value: spec.effort,
-              }).catch(() => {
-                // Non-fatal if model/CLI doesn't expose thought_level option.
-              });
-            }
 
             resume(
               Effect.succeed({
@@ -245,15 +241,10 @@ export function spawnAgyProcess(
                     usage: extractAcpUsage(res.usage),
                   };
                 },
-                setEffort: async (effort) => {
-                  await sendRequest("session/set_config_option", {
-                    sessionId,
-                    configId: "thought_level",
-                    value: effort,
-                  }).catch(() => {
-                    // Best effort on warm process.
-                  });
+                setModel: async (agyModelId) => {
+                  await sendRequest("session/set_model", { sessionId, modelId: agyModelId });
                 },
+                getContextUsage: () => contextUsage,
                 cancelPrompt: () => {
                   writeRaw(encodeJsonRpcNotification("session/cancel", { sessionId }));
                 },

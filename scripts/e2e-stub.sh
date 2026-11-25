@@ -26,7 +26,7 @@ fi
 
 run_pi() {
   cd "$WORK_DIR" && PATH="$STUB_DIR:$PATH" ${TIMEOUT[@]+"${TIMEOUT[@]}"} \
-    pi -ne -e "$EXT_DIR" -p --model "pi-agy-cli/gemini-4-neon-high" "$1" \
+    pi -ne -e "$EXT_DIR" -p --model "pi-agy-cli/gemini-4-neon" "$1" \
     </dev/null
 }
 

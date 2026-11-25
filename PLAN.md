@@ -66,7 +66,7 @@ pi-agy-cli/
 │   ├── provider-env.ts           # Env resolution (Effect-free)
 │   ├── provider-runtime.ts       # Effect runtime boundary: one fiber per call, one terminal event
 │   ├── terminal-event.ts         # Single terminal event helper (Effect-free)
-│   ├── thinking-config.ts        # pi ThinkingLevel -> agy --effort mapping (Effect-free)
+│   ├── thinking-config.ts        # pi ThinkingLevel -> agy effort-variant model id (Effect-free)
 │   ├── tool-mapping.ts           # Tool name/arg mapping & IDs
 │   ├── errors.ts                 # Effect Data.TaggedError types
 │   ├── trace-location.ts         # ~/.local/state/pi-agy-cli/traces path resolution

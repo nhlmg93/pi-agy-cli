@@ -8,7 +8,6 @@ import { Effect, Exit, Scope } from "effect";
 import type { AgyLaunchSpec } from "./agy-cli.ts";
 import { spawnAgyProcess, type AcpPromptOutcome, type AgyProcessHandle } from "./agy-process.ts";
 import type { AgyProcessError } from "./errors.ts";
-import type { AgyEffortLevel } from "./thinking-config.ts";
 
 export interface ParkedProcess {
   readonly handle: AgyProcessHandle;
@@ -16,7 +15,8 @@ export interface ParkedProcess {
   readonly acknowledgedPrefixLength: number;
   readonly pendingToolCallIds: readonly string[];
   readonly activePrompt?: Promise<AcpPromptOutcome>;
-  readonly lastEffort?: AgyEffortLevel;
+  /** agy model id (effort variant) the session currently runs. */
+  readonly currentAgyModelId: string;
 }
 
 export interface ProcessPool {
@@ -91,7 +91,7 @@ export function makeProcessPool(cap: number): ProcessPool {
         scope,
         acknowledgedPrefixLength: 0,
         pendingToolCallIds: [],
-        lastEffort: spec.effort,
+        currentAgyModelId: spec.agyModelId,
       };
     });
 

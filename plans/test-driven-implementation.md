@@ -19,7 +19,7 @@ Follow a strict **tests-first, then implement-to-green** workflow:
    - `hang` → starts a message and never finishes (for timeout/abort testing)
    - `models` / `--help` → deterministic CLI discovery responses
 4. **Effect-Service Scenario Suite (`scripts/scenarios.ts` & `scripts/scenarios/driver.ts`):** Run real `ProviderRuntime`, `runEpisode`, and `ProcessPool` against `tests/e2e/agy-stub.cjs` in an isolated `XDG_STATE_HOME`, asserting stream outputs, warm-process reuse (PID stability), background retirement, tool handoff, error/abort handling, and emitted NDJSON trace spans.
-5. **Real-Pi E2E Smoke (`scripts/e2e-stub.sh`):** Prepend a temp `STUB_DIR` containing `agy` (copied from `tests/e2e/agy-stub.cjs`) to `PATH`, isolate `XDG_STATE_HOME`, run `pi -ne -e "$EXT_DIR" -p --model "pi-agy-cli/gemini-4-neon-high" "magic word" </dev/null`, and assert `PORT-OK`.
+5. **Real-Pi E2E Smoke (`scripts/e2e-stub.sh`):** Prepend a temp `STUB_DIR` containing `agy` (copied from `tests/e2e/agy-stub.cjs`) to `PATH`, isolate `XDG_STATE_HOME`, run `pi -ne -e "$EXT_DIR" -p --model "pi-agy-cli/gemini-4-neon" "magic word" </dev/null`, and assert `PORT-OK`.
 6. **Implement to Green:** Install dependencies (`pnpm install` / `vp install`) and implement/refine `src/` and `index.ts` until `vp run ready` (`vp check && vp test run && vp run test:scenarios && vp run test:e2e`) passes with zero errors.
 
 ## Files to Modify / Create
